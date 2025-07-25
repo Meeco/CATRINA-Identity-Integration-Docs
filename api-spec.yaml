@@ -1,0 +1,3430 @@
+openapi: 3.1.0
+info:
+  description: |
+    ## What is the Organisation Wallet
+
+    The Organisation Wallet API (the service) provides an interface for managing (organisation) digital wallets. Its primary purpose is to facilitate
+
+    - Credential issuance (issuing) and
+    - Credential presentation (requesting).
+
+    The following credential formats are supported:
+
+    - `dc+sd-jwt`: SD-JWT VC supporting selective disclosure (RECOMMENDED)
+    - `jwt_vc_json`: W3C VC
+
+    SD-JWT VC don't support the W3C Verifiable Credential Data Model (VCDM) and claims are added to the root of the token. This approach is considered more efficient than W3C VC (encoded as JWT) as those have duplicate information.
+
+    ## Issuing Credentials
+
+    This section explains how to issue credentials using the service.
+
+    Before you start, make sure to have the following setup in SVX, either using the SVX Portal or the SVX API:
+
+    - Tenant has assigned a "Credential Schema to your organisation.
+    - For a Credential Schema, create a "Credential Template", defining the styling (background color, color, logo, name)
+
+    ### Credential Issuer Metadata
+
+    The service populates the following Credential Issuer Metadata using information stored in SVX:
+
+    - `display`: display properties for the Credential Issuer
+    - `credential_configuration_supported`: details of the Credentials that can be issued by the Issuer
+
+    The `display` attribute is an array of objects containing the following display properties for a Credential Issuer:
+
+    - `name`: name of the Credential Issuer
+    - `locale`: language of the object as per BCP47
+    - `logo`: object with information regarding the logo of the Credential Issuer
+      - `uri`: URI of the logo
+
+    The table below provides the mapping between the `display` properties and the SVX resource `org` model.
+
+    | `display` Metadata | SVX Resource |
+    | - | - |
+    | `name` | `org.name` |
+    | `logo.uri` | `org.logo_url` |
+
+    The `credential_configuration_supported` is an array of objects containing the following properties:
+
+    - `format`: JSON string identifying the format of the Credential
+    - `scope`: JSON string identifying the scope of the Credential (Not Supported, but on roadmap)
+    - `cryptographic_binding_methods_supported`: Array of strings identifying the cryptographic binding methods supported
+    - `proof_types_supported`: Object describing the details of the supported key proof types
+    - `display`: Array of objects containing the following display properties for a Credential:
+      - `name`: Name of the Credential
+      - `logo`: Logo of the Credential
+        - `uri`: URI of the logo
+      - `background_color`: Background color of the Credential as used in CSS colors
+      - `text_color`: Text color of the Credential as used in CSS colors
+
+    The following properties are the basis for generating the `credential_configuration_supported` object array:
+
+    - "Credential Templates" (credential_type in API)
+
+    For each "Credential Template" and format combination, an entry in the `credential_configuration_supported` object array is created indicating the issuances that are supported.
+
+    The following table provides the mapping between the `credential_configuration_supported` properties and the SVX resource `credential_type` model.
+
+    | `credential_configuration_supported` Metadata | SVX Resource |
+    | - | - |
+    | `format` | |
+    | `cryptographic_binding_methods_supported` |  |
+    | `display.name` | `credential_type.name` |
+    | `display.logo.uri` | `credential_type.style.image` |
+    | `display.background_color` | `credential_type.style.background` |
+    | `display.text_color` | `credential_type.style.text-color` (note the hypen) |
+
+    ### Credential Offer
+
+    Next step is to create a Credential Offer and offer that to the Holder Wallet.
+
+    ```shell
+    echo '{
+      "credentials": [
+        "GAINPOCSimpleIdentityCredential_sd_jwt"
+      ],
+      "grants": {
+        "urn:ietf:params:oauth:grant-type:pre-authorized_code": {
+          "pre-authorized_code": "RwkCdHTCp2ENqwTV",
+          "user_pin_required": true
+        }
+      },
+      "claims": {"given_name": "Ken", "family_name": "Tanaka", "birthdate": "1967-02-01"}
+    }' | xh POST 'http://organisation-wallet-dev.svx.internal/credential_offers'
+    ```
+
+    This outputs a URI, alongside other relevant parameters that can be communicated to the End-User, who uses their wallet to get the credential offer.
+
+    At this point in time, only issuer initiated issuance is supported, i.e. requiring a Credential Offer.
+
+    ### Crypgraphic Binding
+
+    The service supports the following cryptographic binding methods:
+
+    - `jwk`
+    - `did:key`
+    - `did:jwk`
+    - `did:web`
+
+    Binding to DID can be supported for a wide variety of DID methods, although the ones listed above are the default. Note that DIDs that use a ledger can have costs attached to them.
+
+    ## Presenting Credentials
+
+    ## Deployment
+
+    The goal is to provide flexibility on how the component is integrated within an enterprise.
+
+    One instance manages issuing and verification of credentials for a single organisation part of an SVX tenant.
+
+    Following endpoints need to be publicly available for wallets to interact with in the context of issuing and verifying credentials:
+
+    - [Authorization Server](#authorization-server)
+    - [Well-Known URIs](#well-known-uris)
+    - [Verifiable Credential Issuance](#verifiable-credential-issuance)
+  title: Organisation Wallet API
+  version: 7.0.0
+security:
+  - {}
+  - bearerAuth: []
+  - mutualTLS: []
+servers:
+  - description: Development server
+    url: http://organisation-wallet-dev.svx.internal
+  - description: Local server
+    url: http://localhost:3000
+tags:
+  - description: |
+      Authorization server endpoints as defined by specifications related to OAuth 2.0.
+    name: Authorization Server
+  - description: |
+      Well known endpoints as defined by the following standards and specifications and relevant to issuance or verification of credentials.
+      - [RFC8414](https://datatracker.ietf.org/doc/html/rfc8414)
+      - [OpenID Connect Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html)
+      - [OpenID for Verifiable Credential Issuance](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html)
+      - [SD-JWT VC](https://drafts.oauth.net/oauth-sd-jwt-vc/draft-ietf-oauth-sd-jwt-vc.html)
+
+      A complete list of Well-Known URIs can be found in the [IANA registry](https://www.iana.org/assignments/well-known-uris/well-known-uris.xhtml)
+    name: Well-Known URIs
+paths:
+  /version:
+    get:
+      description: Endpoint to read deployed service version information.
+      operationId: AppController_getVersion
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionDto'
+          description: ''
+      summary: Get deployed service version information
+      tags:
+        - Monitoring
+  /system/status:
+    get:
+      description: Endpoint to read deployed service status information.
+      operationId: AppController_getSystemStatus
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusDto'
+          description: ''
+      summary: Get deployed service status information
+      tags:
+        - Monitoring
+  /.well-known/jwt-vc-issuer:
+    get:
+      description: |
+        JWT VC Issuer Metadata as defined in section 5 [SD-JWT VC](https://drafts.oauth.net/oauth-sd-jwt-vc/draft-ietf-oauth-sd-jwt-vc.html).
+
+        The response contains either `jwks` or `jwks_uri`, but not both.
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WellKnownJwtIssuerResponse'
+          description: OK
+      summary: JWT VC Issuer Metadata
+      tags:
+        - Well-Known URIs
+  /.well-known/oauth-authorization-server:
+    get:
+      description: |
+        Authorization Server metadata as per [RFC8414](https://datatracker.ietf.org/doc/html/rfc8414)
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenidConfigResponse'
+          description: OK
+      summary: Authorization Server Metadata
+      tags:
+        - Well-Known URIs
+  /.well-known/openid-configuration:
+    get:
+      description: |
+        OpenID Provider Configuration as defined in [OpenID Connect Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html#IssuerDiscovery)
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenidConfigResponse'
+          description: OK
+      summary: OpenID Provider Configuration
+      tags:
+        - Well-Known URIs
+  /.well-known/openid-credential-issuer:
+    get:
+      description: |
+        Credential Issuer Metadata as defined in section 10.2 [OpenID for Verifiable Credential Issuance](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html)
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WellKnownResponse'
+          description: OK
+      summary: Credential Issuer Metadata
+      tags:
+        - Well-Known URIs
+  /.well-known/appspecific/selectid.rp:
+    get:
+      description: |
+        SelectID Relying Party metadata.
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SelectIDRPConfigResponse'
+          description: OK
+      summary: SelectID Relying Party metadata
+      tags:
+        - Well-Known URIs
+  /authorize:
+    get:
+      description: |
+        Authorization Request endpoint as specified in the OpenID for Verifible Credential Issuance specification.
+
+        Supported issuance requests:
+        - `authorization_details`
+
+        Request issuance of credentials using `authorization_details`
+
+        ## Supported Standards
+
+        - OID4VCI: OpenID for Verifible Credential Issuance ID-1 (Section 5)
+        - RFC7636: Proof Key for Code Exchange (Section 4.3)
+      parameters:
+        - description: A unique identifier for the client
+          in: query
+          name: client_id
+          required: true
+          schema:
+            type: string
+        - description: Inform the authorization server of the desired grant type. MUST be `code`, which is used to initiate the authorization code flow
+          in: query
+          name: response_type
+          required: false
+          schema:
+            enum:
+              - code
+            type: string
+        - description: Scope of the access request. Can be used to communicate credential type(s) to be issued. MUST contain `openid`
+          in: query
+          name: scope
+          required: false
+          schema:
+            enum:
+              - openid
+            type: string
+        - description: The URI to which the authorization server will redirect the user-agent with the authorization code after the authorization is completed
+          in: query
+          name: redirect_uri
+          required: true
+          schema:
+            type: string
+        - description: "Code challenge generated by the client's code verifier. MUST be used with `code_challenge_method`"
+          in: query
+          name: code_challenge
+          required: false
+          schema:
+            type: string
+        - description: 'The method used to dervice the code challenge. MUST be `S256`'
+          in: query
+          name: code_challenge_method
+          required: false
+          schema:
+            enum:
+              - S256
+            type: string
+        - description: 'Issuer state as provided in the credential offer claim `grants.authorization_code.issuer_state`. Required if the offer contained `issuer_state`.'
+          in: query
+          name: issuer_state
+          required: false
+          schema:
+            type: string
+        - description: Reference to the request object as returned by the Pushed Authorization Request (PAR) endpoint
+          in: query
+          name: request_uri
+          required: false
+          schema:
+            type: string
+        - description: Serialized array of authorization details object defined in Section 2 of [RFC9396] used to convey the details about the Credentials the Wallet wants to obtain
+          in: query
+          name: authorization_details
+          required: false
+          schema:
+            type: string
+      responses:
+        '303':
+          description: |
+            Redirect to Authentication page.
+            In case of error, response redirects to the URI provided via `redirect_uri` paramter with `error` and `error_description` properties.
+            Possible error values:
+              - invalid_request
+              - invalid_grant
+              - invalid_scope
+              - invalid_client
+              - unauthorized_client
+              - unsupported_grant_type
+              - server_error
+              - temporary_unavailable
+          headers:
+            location:
+              schema:
+                type: string
+        '400':
+          description: 'Request is invalid and `redirect_uri` property was not provided'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+        '500':
+          description: 'Internal Server Error. Unexpected error occurred.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerErrorError'
+        '503':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemporarilyUnavailableError'
+      summary: Authorization Endpoint
+      tags:
+        - Authorization Server
+  /callback:
+    get:
+      description: |
+        Authorizes user with the authorization server, verifies the token and issues Organisation Cloud Wallet access token that later can be used to get credentials.
+        Authorization server must be configured to have this endpoint as a `redirect_uri`. After hitting this endpoint, Organsation Cloud Wallet will redirect back to the `redirect_uri` that client has provided.
+      parameters:
+        - description: Error code
+          in: query
+          name: error
+          required: false
+          schema:
+            type: string
+        - description: Error description
+          in: query
+          name: error_description
+          required: false
+          schema:
+            type: string
+        - description: Error URI
+          in: query
+          name: error_uri
+          required: false
+          schema:
+            type: string
+        - description: Authorization code
+          in: query
+          name: code
+          required: false
+          schema:
+            type: string
+        - description: Authorization state
+          in: query
+          name: state
+          required: false
+          schema:
+            type: string
+        - description: Access token issuer
+          in: query
+          name: iss
+          required: false
+          schema:
+            type: string
+      responses:
+        '301':
+          description: Redirect back to the client `redirect_uri` that was used to initiate the authorization flow
+          headers:
+            location:
+              schema:
+                type: string
+      summary: Authorization Callback Endpoint
+      tags:
+        - Authorization Server
+  /credential_offers:
+    post:
+      description: |
+        Creates a credential offer, claimable via the returned `uri`.
+
+          Checks if credential `format` in `credentials` payload is supported by the instance.
+
+          Checks claims in `claims` against registered credential schema.
+
+          ---
+
+          **Pre-authorized Code Grant**: Calls oidc-provider `{{AUTHORIZATION_SERVER_URL}}/credential_offer` to inform authentication server of the pre-authorized_code
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialOfferRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialOfferResponse'
+          description: OK
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvalidRequestError'
+          description: ''
+      summary: Create credential offer
+      tags:
+        - Credential Offers
+  /credential_offers/{id}:
+    delete:
+      description: |
+        Delete credential offer by ID
+
+        ID is the `pre-authorized_code` or `issuer_state` of the credential offer depending on the type of `Grant`.
+      parameters:
+        - description: ID of the credential offer to delete
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '501':
+          description: Not Implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                NotImplemented:
+                  value:
+                    error: not_implemented
+                    error_description: The requested functionality is not implemented on the server.
+                    error_uri: https://example.com/errors/not_implemented
+      summary: Delete credential offer by ID
+      tags:
+        - Credential Offers
+    get:
+      description: |
+        Get credential offer by ID.
+
+        ID is the `pre-authorized_code` or `issuer_state` of the credential offer depending on the type of `Grant`.
+      parameters:
+        - description: ID of the credential offer to retrieve
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialOffer'
+          description: OK
+      summary: Get credential offer by ID
+      tags:
+        - Credential Offers
+  /credentials:
+    get:
+      description: Lists credentials that has been issued by the SVX organisation configured for this organisation-wallet instance
+      parameters:
+        - name: order
+          required: false
+          in: query
+          description: 'Credentials response order. Default ordering: `DESC` (Supported: `ASC`, `DESC`) '
+          schema:
+            enum:
+              - ASC
+              - DESC
+            type: string
+            examples:
+              - DESC
+        - name: order_by
+          required: false
+          in: query
+          description: 'Order credentials by an attribute, defaults to: `created_at` (Supported: `created_at`)'
+          schema:
+            enum:
+              - created_at
+            type: string
+            examples:
+              - created_at
+        - name: per_page
+          required: false
+          in: query
+          description: Number of records per page
+          schema:
+            type: integer
+            examples:
+              - 10
+        - name: page
+          required: false
+          in: query
+          description: Page number (starting from 1)
+
+          schema:
+            type: integer
+            examples:
+              - 1
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListCredentialsResponse'
+          description: OK
+      summary: List credentials
+      tags:
+        - Credentials
+  /credential:
+    post:
+      description: |
+        Issues a Credential upon presentation of a valid Access Token. The Client can request issuance multiple times, enabling binding to multiple keys or DIDs.
+
+        All issued Credentials are cryptographically bound to an identifier that the End-User controls. Non-cryptographic binding is currently not supported.
+
+        ## Key Proof
+
+        The supported key proof type is `jwt`.
+
+        - `jwk` in `proof.header` will be assigned to `cnf.jwk` in the issued credential or to the `device_key_info` in the mso of the issued `mso_mdoc`
+        - `kid` in `proof.header` will be assigned to the `credentialSubject.id` in the issued credential
+
+        Using the `kid` is the preferred method when using DIDs.
+
+          Credential will be issued and signed by the configured organisation wallet key. If not configured it will be signed with the organisation DID
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialResponse'
+          description: OK
+        '400':
+          description: 'The request could not be processed due to invalid input. Refer to the detailed error codes and descriptions for more information.'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InvalidRequestError'
+                  - $ref: '#/components/schemas/InvalidCredentialRequestError'
+                  - $ref: '#/components/schemas/UnsupportedCredentialTypeError'
+                  - $ref: '#/components/schemas/UnsupportedCredentialFormatError'
+                  - $ref: '#/components/schemas/InvalidProofError'
+                  - $ref: '#/components/schemas/InvalidEncryptionParametersError'
+        '403':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessDeniedError'
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerErrorError'
+        '503':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemporarilyUnavailableError'
+      summary: Credential Endpoint
+      tags:
+        - Verifiable Credential Issuance
+  /credentials/{credentialId}:
+    delete:
+      description: |
+        Delete credential by ID
+      parameters:
+        - description: ID of the credential to delete
+          in: path
+          name: credentialId
+          required: true
+          schema:
+            type: string
+      responses:
+        '501':
+          description: Not Implemented
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: not_implemented
+                error_description: The requested functionality is not implemented on the server.
+                error_uri: https://example.com/errors/not_implemented
+      summary: Delete credential by ID
+      tags:
+        - Credentials
+    get:
+      description: |
+        Get a credential by ID.
+
+        Credentials are stored in the enterprise vault of the organisation.
+      parameters:
+        - description: The ID of the verifiable credential
+          example: urn:uuid:90cbe511-279f-43d6-b7b3-bd6c30932a1b
+          in: path
+          name: credentialId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialModelDto'
+          description: OK
+      summary: Get credential by ID
+      tags:
+        - Credentials
+    patch:
+      parameters:
+        - description: The ID of the verifiable credential
+          example: urn:uuid:90cbe511-279f-43d6-b7b3-bd6c30932a1b
+          in: path
+          name: credentialId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              properties:
+                credential_status:
+                  properties:
+                    status:
+                      enum:
+                        - '0'
+                      type: string
+                    type:
+                      enum:
+                        - revocation
+                      type: string
+                  type: object
+              type: object
+        required: true
+      responses:
+        '204':
+          description: No Content
+      summary: Revoke a credential
+      tags:
+        - Credentials
+  /jwks:
+    get:
+      description: |
+        Host the JSON Web Key Set for the Authorization Server
+      responses:
+        '200':
+          content:
+            application/json:
+              example:
+                keys:
+                  - alg: ES256
+                    crv: P-256
+                    kid: ritDgnA8wOtvFEA3pd2AEGom7vgGgCwKH1gfhQUkY1k
+                    kty: EC
+                    use: sig
+                    x: M4CRKG-wiOTEnTNqQ89fOz3gzznbNroG47FhbYLMZaE
+                    y: p0BZN0a-2t9NTV40xU3uVaac-mHqC4zUYUS9nfLxink
+              schema:
+                properties:
+                  keys:
+                    items:
+                      description: JSON Web Key
+                      type: object
+                    type: array
+                type: object
+          description: JSON Web Key Set
+      summary: JSON Web Keys Endpoint
+      tags:
+        - Authorization Server
+  /nonce:
+    post:
+      summary: Get a nonce
+      description: Get a nonce to be used in proof of possession during credential issuance
+      response:
+        '200':
+          content:
+            application/json:
+              c_nonce:
+                type: string
+      tags:
+        - Credentials
+  /openid/presentations/requests/{requestId}/jwt:
+    get:
+      summary: Get a Verifiable Presentation Request JWT
+      description: Get a Verifiable Presentation Request JWT generated and stored by the Organisation Cloud Wallet
+      parameters:
+        - description: The ID of the Presentation Request
+          in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/jwt:
+              example: |
+                eyJ0eXAiOiJKV1QiLCJraWQiOiJkaWQ6a2V5OnpEbmFlYTFRaGdxVWM3aE1Ub3hpQ3RiWlBkOHZLRHdtSGpQWE44ZkRZd0g1TGtyVlYjekRuYWVhMVFoZ3FVYzdoTVRveGlDdGJaUGQ4dktEd21IalBYTjhmRFl3SDVMa3JWViIsImFsZyI6IkVTMjU2In0.eyJqdGkiOiJtb2NrZWQtcHJlc2VudGF0aW9uLXJlcXVlc3QtMSIsInN1YiI6ImRpZDprZXk6ekRuYWVhMVFoZ3FVYzdoTVRveGlDdGJaUGQ4dktEd21IalBYTjhmRFl3SDVMa3JWViIsImlzcyI6ImRpZDprZXk6ekRuYWVhMVFoZ3FVYzdoTVRveGlDdGJaUGQ4dktEd21IalBYTjhmRFl3SDVMa3JWViIsImlhdCI6MTcyODQ2MTc0OCwiY2xpZW50X2lkIjoiZGlkOmtleTp6RG5hZWExUWhncVVjN2hNVG94aUN0YlpQZDh2S0R3bUhqUFhOOGZEWXdINUxrclZWIiwibm9uY2UiOiJtb2NrLW5vbmNlIiwicHJlc2VudGF0aW9uX2RlZmluaXRpb24iOnsiaWQiOiJwcmVzZW50YXRpb24tZGVmaW5pdGlvbi0xIiwibmFtZSI6Im1vY2stcGQiLCJwdXJwb3NlIjoibW9jay1wZCIsImlucHV0X2Rlc2NyaXB0b3JzIjpbeyJpZCI6InRlc3QtaW5wdXQtZGVzY3JpcHRvciIsIm5hbWUiOiJ0ZXN0LWlucHV0LWRlc2NyaXB0b3IiLCJwdXJwb3NlIjoiIiwiY29uc3RyYWludHMiOnsiZmllbGRzIjpbeyJwYXRoIjpbIiQudmN0Il0sImZpbHRlciI6eyJ0eXBlIjoic3RyaW5nIiwiY29uc3QiOiJ2Y3QifX1dfX1dfSwicmVzcG9uc2VfdXJpIjoiaHR0cDovL21lZWNvLW9jdy51cmkvb3BlbmlkL3ByZXNlbnRhdGlvbnMvcmVxdWVzdHMvbW9ja2VkLXByZXNlbnRhdGlvbi1yZXF1ZXN0LTEvc3VibWlzc2lvbnMiLCJyZXNwb25zZV9tb2RlIjoiZGlyZWN0X3Bvc3QiLCJyZXNwb25zZV90eXBlIjoidnBfdG9rZW4iLCJzY29wZSI6Im9wZW5pZCIsInN0YXRlIjoiMzFlY2YwNzgtNGEzZi00NjZlLTg2NmQtNDg2YTQ3OTFjZTE5In0.4Ot6tR5ZXxTQduMpHqlowhSlliV7R-_H84_quZrtbDqh9S4m2yiUWrylWyzs9EuHID6jhcL2hL9PgJ4tBSzs1Q
+          description: Signed OpenID presentation request JWT
+        '404':
+          description: Presentation request not found
+      tags:
+        - Verifiable Presentations
+  /openid/presentations/requests/{requestId}/submissions:
+    post:
+      description: |
+        Endpoint to which a wallet sends the Authorization Response during a Presentation Request flow, using `direct_post` or `direct_post.jwt` Response Mode.
+
+        if response mode is `direct_post.jwt` the expected payload is a compact JWE
+
+        Upon receiving the response, the service verifies the response and, if successful, stores it. This triggers a change in the state of the request, allowing a service to provide feedback to the End-User.
+
+          ---
+
+          Order of calls:
+          + svx siopV2rp plugin
+          + svx rp plugin
+          + svx presentation plugin - verify using meeco SDK
+          + svx svx vault plugin - save to vault using meeco SDK
+          + svx presentation plugin - update status using meeco SDK
+      parameters:
+        - description: The ID of the Presentation Request
+          in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              additionalProperties: false
+              properties:
+                id_token:
+                  type: string
+                state:
+                  type: string
+                vp_token:
+                  type: string
+                presentation_submission:
+                  type: string
+                response:
+                  type: string
+                  description: compact JWE containing a vp_token and presentation_submission
+              type: object
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  redirect_uri:
+                    type: string
+                type: object
+          description: Presentation Response verified and stored successfully
+        '404':
+          description: Presentation request not found
+        '422':
+          description: Unsupported Credential Format
+        '500':
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InvalidRequestError'
+                  - $ref: '#/components/schemas/ServerErrorError'
+          description: ''
+      summary: Verify and store a Presentation Request Submission
+      tags:
+        - Verifiable Presentations
+  /par:
+    post:
+      description: "PAR endpoint to send the authorization request payload via HTTP POST instead of querystring.\n\n  Returns a `request_uri` which can be used in the `/authorize` endpoint.\n\n  ---\n\n  Proxies request to oidc-provider"
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              properties:
+                client_id:
+                  description: random uuid
+                  type: string
+                code_challenge:
+                  description: Code challenge derived from the client's code verifier
+                  type: string
+                code_challenge_method:
+                  description: Code challenge method
+                  enum:
+                    - S256
+                  type: string
+                issuer_state:
+                  description: Issuer state from credential offer, grants.authorization_code.issuer_state
+                  type: string
+                redirect_uri:
+                  description: Redirect URI after authorization is completed
+                  type: string
+                response_type:
+                  description: Authorization type
+                  enum:
+                    - code
+                  type: string
+                scope:
+                  enum:
+                    - openid
+                  type: string
+              required:
+                - client_id
+                - code_challenge
+                - code_challenge_method
+                - issuer_state
+                - redirect_uri
+                - response_type
+                - scope
+              type: object
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  request_uri:
+                    type: string
+                type: object
+          description: Redirect URI that can be used in the /authorize endpoint
+        '400':
+          description: 'The request could not be processed due to invalid input. Refer to the detailed error codes and descriptions for more information.'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InvalidRequestError'
+                  - $ref: '#/components/schemas/InvalidScopeError'
+                  - $ref: '#/components/schemas/InvalidClientError'
+                  - $ref: '#/components/schemas/UnauthorizedClientError'
+                  - $ref: '#/components/schemas/UnsupportedGrantTypeError'
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerErrorError'
+        '503':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemporarilyUnavailableError'
+      summary: Pushed Authorization Request Endpoint
+      tags:
+        - Authorization Server
+  /presentations/definitions:
+    get:
+      description: |
+        Fetch a paginated list of Presentation Definitions (aka Presentation Templates) from the SVX API.
+      parameters:
+        - description: To filter archived Presentation Definitions
+          example: active
+          in: query
+          name: status
+          required: false
+          schema:
+            enum:
+              - all
+              - active
+              - archived
+            type: string
+        - description: Search by name
+          in: query
+          name: search
+          required: false
+          schema:
+            type: string
+        - description: 'Presentation Definitions response order. Default ordering: `DESC` (Supported: `ASC`, `DESC`)'
+          example: DESC
+          in: query
+          name: order
+          required: false
+          schema:
+            enum:
+              - ASC
+              - DESC
+            type: string
+        - description: 'Order Presentation Definitions by an attribute, defaults to: `created_at` (Supported: `name`, `created_at`)'
+          example: created_at
+          in: query
+          name: order_by
+          required: false
+          schema:
+            enum:
+              - created_at
+              - name
+            type: string
+        - description: Number of records per page
+          example: 10
+          in: query
+          name: per_page
+          required: false
+          schema:
+            type: integer
+        - description: Page number (starting from 1)
+          example: 1
+          in: query
+          name: page
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCPaginatedPresentationDefinitionsResponseDto'
+          description: successfully resolved!
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Forbidden
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Internal server error
+      summary: Get Presentation Definitions
+      tags:
+        - Presentation Definitions
+  /presentations/definitions/{id}:
+    get:
+      description: |
+        Fetch a Presentation Definition (aka Presentation Template) by ID from the SVX API.
+      parameters:
+        - description: ID of the Presentation Definition to get
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The request was successful.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCPresentationDefinitionResponseDto'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+      summary: Get Presentation Definition by ID
+      tags:
+        - Presentation Definitions
+  /presentations/requests:
+    get:
+      description: |
+        Get a list of Presentation Requests
+
+          ---
+
+          Proxies request to SVX API
+      parameters:
+        - description: To filter archived presentation requests
+          example: active
+          in: query
+          name: status
+          required: false
+          schema:
+            enum:
+              - all
+              - active
+              - archived
+            type: string
+        - description: Search by name
+          in: query
+          name: search
+          required: false
+          schema:
+            type: string
+        - description: 'Presentation requests response order. Default ordering: `DESC` (Supported: `ASC`, `DESC`)'
+          example: DESC
+          in: query
+          name: order
+          required: false
+          schema:
+            enum:
+              - ASC
+              - DESC
+            type: string
+        - description: 'Order presentation requests by an attribute, defaults to: `created_at` (Supported: `name`, `created_at`)'
+          example: created_at
+          in: query
+          name: order_by
+          required: false
+          schema:
+            enum:
+              - created_at
+              - name
+            type: string
+        - description: Number of records per page
+          example: 10
+          in: query
+          name: per_page
+          required: false
+          schema:
+            type: integer
+        - description: Page number (starting from 1)
+          example: 1
+          in: query
+          name: page
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCPaginatedPresentationRequestResponseDto'
+          description: successfully resolved!
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Forbidden
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Internal server error
+      summary: Get a list of Presentation Requests
+      tags:
+        - Verifiable Presentation Requests
+    post:
+      description: |
+        Create a Presentation Request
+
+          ---
+
+          Chain of calls:
+          + svx siop plugin
+          + svx rp plugin
+          + svx presentation plugin
+          + Meeco SDK - presentationRequestApi.presentationRequestsControllerCreate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              example:
+                request_uri: openid-vc://?request_uri=https://api-dev.svx.exchange/openid/presentations/requests/f770292d-8ee5-4587-af4d-f69cd7ac5069/jwt
+                status_uri: http://organisation-wallet-dev.svx.internal/auth-status
+                definition_id: e7c84127-101c-42bc-9889-eade8f58cada
+                request_id: 0fa608b1-61b9-4c83-8bd3-2bb906757577
+                response_mode: direct_post
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+          description: Presentation request created successfully
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerErrorError'
+      summary: Create a Presentation Request
+      tags:
+        - Verifiable Presentation Requests
+  /presentations/requests/{requestId}:
+    delete:
+      description: |
+        Archive presentation request
+
+          ---
+
+          Proxies request to SVX API `/openid/presentations/requests/${requestId}` DELETE endpoint
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCPresentationRequestResponseDto'
+          description: ''
+        '204':
+          description: Presentation requests archived
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Forbidden
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Internal server error
+      summary: Archive Presentation Request by ID
+      tags:
+        - Verifiable Presentation Requests
+    get:
+      description: |
+        Get a Presentation Request by its Id
+
+          ---
+
+          Proxies request to SVX API `/openid/presentations/requests/${requestId}` GET endpoint
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCPresentationRequestResponseDto'
+          description: The request was successful.
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Forbidden
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Internal server error
+      summary: Get a Presentation Request by ID
+      tags:
+        - Verifiable Presentation Requests
+  /presentations/requests/{requestId}/status:
+    get:
+      description: |
+        Retrieves the status of a Presentation Request
+
+          ---
+
+          uses Meeco SDK to fetch status of Presentation Request by its id
+      parameters:
+        - description: The ID of the Presentation Request
+          in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthStatusResponse'
+              example:
+                request_id: 0fa608b1-61b9-4c83-8bd3-2bb906757577
+                status: pending
+          description: Presentation Request status retrieved successfully
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerErrorError'
+      summary: Get the status of a Presentation Request
+      tags:
+        - Verifiable Presentation Requests
+  /presentations/requests/{requestId}/submissions:
+    get:
+      description: |
+        List presentation request submissions
+
+          ---
+
+          Fetches a list of presentation request submissions saved into the SVX vault using meeco SDK.
+
+          Decrypts retrieved vault items using passphrase derived key (based on configured passphrase)
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VCPresentationRequestSubmissionModelDto'
+          description: Submissions loaded
+      summary: List Presentation Request Responses
+      tags:
+        - Verifiable Presentation Response
+  /presentations/requests/{requestId}/submissions/{submissionId}:
+    delete:
+      description: |
+        Delete a presentation request submission
+
+          ---
+
+          Proxies to SVX API `/items/${submissionId}` DELETE endpoint
+      parameters:
+        - description: The ID of the Presentation Request
+          in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+        - description: The ID of the Submission
+          in: path
+          name: submissionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          content:
+            application/json:
+              schema: {}
+          description: OK
+      summary: Delete a presentation request submission
+      tags:
+        - Verifiable Presentation Response
+    get:
+      description: |
+        Get the presentation request submission by ID
+
+          ---
+
+          Fetches the presentation request submissions saved into the SVX vault using meeco SDK.
+
+          Decrypts retrieved vault item using passphrase derived key (based on configured passphrase)
+      parameters:
+        - description: The ID of the Presentation Request
+          in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+        - description: The ID of the Submission
+          in: path
+          name: submissionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              example:
+                id: ae740c2f-1748-4285-bcef-4aa1997076ed
+                id_token: eyJhbGciOiJFZERTQSIsInR5cCI6IkpXV...
+                last_verified_at: '2023-11-04T05:18:09.019Z'
+                presentation_request_id: 2f055ffc-a296-45d4-8681-7e44c68a8bae
+                presentation_submission:
+                  id: ae740c2f-1748-4285-bcef-4aa1997076ed
+                  definition_id: 4c11dc6b-ca8d-4a19-899c-a12345678912
+                  descriptor_map: [{ id: 'Presentation Request', format: 'dc+sd-jwt', path: '$' }]
+                state: 695f5023-e89c-4574-bfad-c116e33eb55d
+                verification_result:
+                  checks:
+                    - format
+                  errors: []
+                  id_token:
+                    checks:
+                      - format
+                      - signature
+                      - expiration
+                      - nonce
+                    errors: []
+                    warnings: []
+                  request:
+                    checks:
+                      - format
+                      - signature
+                      - expiration
+                    errors: []
+                    id: 2f055ffc-a296-45d4-8681-7e44c68a8bae
+                    warnings: []
+                  vp_token:
+                    checks:
+                      - format
+                      - signature
+                      - expiration
+                    credentials:
+                      - checks:
+                          - format
+                          - signature
+                          - expiration
+                        errors: []
+                        id: urn:uuid:a8836ce4-b6a7-473a-a363-8b7ff7c37bcc
+                        warnings: []
+                    errors: []
+                    warnings: []
+                  warnings: []
+                vp_token: eyJhbGciOiJFZERTQSIsInR5...
+              schema:
+                properties:
+                  id:
+                    type: string
+                  id_token:
+                    type: string
+                  last_verified_at:
+                    type: string
+                  presentation_request_id:
+                    type: string
+                  presentation_submission:
+                    type: object
+                  state:
+                    type: string
+                  verification_result:
+                    properties:
+                      checks:
+                        items:
+                          type: string
+                        type: array
+                      errors:
+                        items:
+                          type: object
+                        type: array
+                      id_token:
+                        type: string
+                      request:
+                        type: string
+                      vp_token:
+                        type: string
+                      warnings:
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  vp_token:
+                    type: string
+                type: object
+          description: Presentation request retrieved successfully
+      summary: Get the presentation request submission by ID
+      tags:
+        - Verifiable Presentation Response
+  /presentations/response/verify:
+    post:
+      description: "Verify a Presentation Request Submission. Does not save presentation request submission. Does not update presentation request status.\n\n  ---\n\n  Proxies request to SVX API `openid/presentations/response/verify` POST endpoint"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VCVerifyPresentationRequestResponsePayloadDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCPresentationRequestResponseVerificationResultResponseDto'
+          description: Presentation Request verification result
+        '401':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Unauthorized
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Forbidden
+        '500':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VCErrorsResponseDto'
+          description: Internal server error
+      summary: Verify a Presentation Request Submission
+      tags:
+        - Verifiable Presentation Response
+  /system/svx/reload_data:
+    get:
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                properties:
+                  status:
+                    type: string
+                    examples:
+                      - OK
+          description: Reload and metadata update was successful
+      summary: Reload credential types and presentation defintions from SVX.
+      tags:
+        - System
+  /token:
+    post:
+      description: |
+        Token endpoint as specified in the OpenID for Verifible Credential Issuance specification.
+        Issue `access_token` in exchange for Authorization Code or Pre-Authorized Code. The `access_token` returned can be used in the Credential Endpoint.
+
+        For more information on the Token Endpoint, see section 6 in [OID4VCI](https://openid.net/specs/openid-4-verifiable-credential-issuance-1_0.html).
+
+        ## Pre-Authorized Code Flow
+
+        Exchange `pre-authorized_code` for `access_token`.
+
+        Also returns a `cNonce` tied to the `pre-authorized_code`. This is to be used in the Credential Request.
+
+        ## Authorized Code Flow
+
+        Exchange `code` + `code_verifier` with `access_token`.
+
+        Also returns a `cNonce` tied with the `code` and an `issuer_state`. This is to be used in the Credential Request.
+
+        Support for following OAuth 2.0 extensions:
+
+        - Pushed Authorization Requests (PAR)
+        - Proof Key Code Exchange (PKCE)
+
+        ## Supported Standards
+
+        - OID4VCI: OpenID for Verifible Credential Issuance ID-1 (Section 6)
+        - RFC7636: Proof Key for Code Exchange (Section 4.5)
+      requestBody:
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRequestModelDto'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponseModelDto'
+          description: OK
+        '400':
+          description: 'Invalid request / grant / scope or unsupported grant type or invalid scope or authorization is pending'
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/InvalidRequestError'
+                  - $ref: '#/components/schemas/InvalidGrantError'
+                  - $ref: '#/components/schemas/InvalidScopeError'
+                  - $ref: '#/components/schemas/InvalidClientError'
+                  - $ref: '#/components/schemas/UnauthorizedClientError'
+                  - $ref: '#/components/schemas/UnsupportedGrantTypeError'
+                  - $ref: '#/components/schemas/AuthorizationPendingError'
+                  - $ref: '#/components/schemas/SlowDownError'
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerErrorError'
+        '503':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemporarilyUnavailableError'
+      summary: Token Endpoint
+      tags:
+        - Authorization Server
+  /identity/sessions:
+    post:
+      tags:
+        - Identity Verification
+      summary: Create an Identity Verification Session
+      security:
+        - BearerAuth: []
+      description: >
+        Creates a new identity verification session. This endpoint generates a unique session ID 
+        and a secure URL to which the user should be redirected to complete the identity 
+        verification process.
+
+        The `presentation_template_id` specifies the required attributes for the verification. 
+        The `success_url` is the callback URLs for post-verification redirection.
+        The `return_url` is the fallback URL in case the user cancels the verification or an error occurs.
+
+        **Note:** You must first obtain a bearer token and include it in the `Authorization` header to access this endpoint.
+      requestBody:
+        required: true
+        description: Parameters needed to create a new verification session.
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - presentation_template_id
+                - success_url
+                - return_url
+              properties:
+                presentation_template_id:
+                  type: string
+                  description: The unique identifier of the presentation template to be used for this verification.
+                  example: 'template-abc-123'
+                success_url:
+                  type: string
+                  format: uri
+                  description: The URL where the user will be redirected after a successful verification.
+                  example: 'https://your-website.com/success'
+                return_url:
+                  type: string
+                  format: uri
+                  description: The URL where the user will be redirected if the flow is canceled or an error occurs.
+                  example: 'https://your-website.com/return'
+      responses:
+        '201':
+          description: Session Created. The response contains the session ID and the URL for user redirection.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    description: The unique identifier for the created session.
+                    example: 'a1b2c3d4-e5f6-7890-g1h2-i3j4k5l6m7n8'
+                  url:
+                    type: string
+                    format: uri
+                    description: The secure URL to which the user's browser should be redirected to start the verification flow.
+                    example: 'https://catrina-identity.com/verify/a1b2c3d4-e5f6-7890-g1h2-i3j4k5l6m7n8'
+  /identity/sessions/{sessionId}:
+    get:
+      summary: Get an identity verification session
+      description: >
+        Retrieves the status and details of a specific identity verification session.
+
+        **Note:** You must first obtain a bearer token and include it in the `Authorization` header to access this endpoint.
+      tags:
+        - Identity Verification
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          description: The unique identifier of the session to retrieve.
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Successfully retrieved the session details.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id:
+                    type: string
+                    description: The session's unique identifier.
+                    example: 'a1b2c3d4-e5f6-7890-1234-567890abcdef'
+                  status:
+                    type: string
+                    description: The current status of the verification session.
+                    example: 'Verified'
+                  verified_claims:
+                    type: object
+                    description: The claims that have been successfully verified and shared. Can be an empty object if no claims have been submitted.
+                    nullable: false
+                    properties:
+                      unicode_given_name:
+                        type: string
+                        example: 'John'
+                      unicode_family_name:
+                        type: string
+                        example: 'Doe'
+                    additionalProperties: true
+        '404':
+          description: The requested session was not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'not_found'
+                  message:
+                    type: string
+                    example: 'Session not found'
+  /identity/verification/{id}/request:
+    get:
+      description: ''
+      parameters:
+        - description: ID of the identity verification interaction
+          in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      summary: Fetches presentation request for the identity verification session
+      tags:
+        - Identity Verification
+      responses:
+        '200':
+          content:
+            application/jwt:
+              schema:
+                type: string
+          description: ''
+components:
+  schemas:
+    StatusDto:
+      properties:
+        app:
+          $ref: '#/components/schemas/App'
+        redis:
+          $ref: '#/components/schemas/Redis'
+        healthCheck:
+          $ref: '#/components/schemas/HealthCheck'
+        protocolVersion:
+          $ref: '#/components/schemas/ProtocolVersion'
+      required:
+        - app
+        - healthCheck
+      type: object
+    VersionDto:
+      properties:
+        component:
+          $ref: '#/components/schemas/Component'
+      required:
+        - component
+      type: object
+    Component:
+      properties:
+        api_version:
+          type: string
+        git_commit:
+          type: string
+        name:
+          type: string
+      required:
+        - api_version
+        - name
+        - git_commit
+      type: object
+    App:
+      properties:
+        component_name:
+          type: string
+        current_api_version:
+          type: string
+        git_commit:
+          type: string
+        node:
+          type: string
+        npm_config_user_agent:
+          type: string
+        npm_lifecycle_event:
+          type: string
+        npm_node_execpath:
+          type: string
+      required:
+        - component_name
+        - current_api_version
+        - git_commit
+        - npm_config_user_agent
+        - node
+        - npm_lifecycle_event
+        - npm_node_execpath
+      type: object
+    HealthCheck:
+      properties:
+        disk:
+          type: object
+        memory:
+          type: object
+      required:
+        - memory
+        - disk
+      type: object
+    Redis:
+      properties:
+        host:
+          type: string
+        port:
+          type: string
+        db:
+          type: string
+        tlsEnabled:
+          type: boolean
+      required:
+        - host
+        - port
+        - db
+        - tlsEnabled
+      type: object
+    ProtocolVersion:
+      properties:
+        issuance:
+          type: string
+        presentation:
+          type: string
+      type: object
+    AuthRequest:
+      properties:
+        definition_id:
+          type: string
+        response_mode:
+          enum:
+            - direct_post
+            - direct_post.jwt
+            - dc_api
+            - dc_api.jwt
+          type: string
+        verifier_redirect_uri:
+          type: string
+          description: uri that will be returned as `redirect_uri` on a successful verification of presentation request response.
+        expected_origins:
+          description: in case of rasponse_mode = `dc_api` or `dc_api.jwt` - `expected_origins` parameter is mandatory.
+          minItems: 1
+          examples:
+            - ['https://holder.meeco.me']
+          type: array
+          items:
+            type: string
+            maxLength: 255
+      required:
+        - definition_id
+      type: object
+    AuthResponse:
+      properties:
+        request_uri:
+          type: string
+        status_uri:
+          type: string
+        definition_id:
+          type: string
+        request_id:
+          type: string
+        response_mode:
+          type: string
+          enum:
+            - direct_post
+            - direct_post.jwt
+            - dc_api
+            - dc_api.jwt
+      required:
+        - definition_id
+        - request_id
+        - request_uri
+        - status_uri
+        - response_mode
+      type: object
+    AuthStatusResponse:
+      properties:
+        request_id:
+          type: string
+        status:
+          enum:
+            - pending
+            - completed
+          type: string
+      required:
+        - status
+        - requestId
+      type: object
+    CredentialConfigurationsProperty:
+      properties:
+        credential_metadata:
+          type: object
+          properties:
+            claims:
+              $ref: '#/components/schemas/CredentialConfigurationClaims'
+            display:
+              items:
+                $ref: '#/components/schemas/DisplayName'
+              type: array
+        claims:
+          $ref: '#/components/schemas/CredentialConfigurationClaims'
+        credential_definition:
+          oneOf:
+            - $ref: '#/components/schemas/JwtVcJsonCredentialDefinition'
+        cryptographic_binding_methods_supported:
+          items:
+            type: string
+          type: array
+        cryptographic_suites_supported:
+          items:
+            type: string
+          type: array
+        display:
+          items:
+            $ref: '#/components/schemas/DisplayName'
+          type: array
+        format:
+          type: string
+        proof_types_supported:
+          properties:
+            jwt:
+              properties:
+                proof_signing_alg_values_supported:
+                  items:
+                    enum:
+                      - ES256
+                      - EdDSA
+                    type: string
+                  type: array
+              type: object
+          type: object
+        scope:
+          type: string
+        vct:
+          type: string
+      type: object
+    CredentialModelDto:
+      properties:
+        created_at:
+          description: The date and time when the credential was added to a Wallet.
+          examples:
+            - '2024-01-09T12:00:00Z'
+          format: date-time
+          type: string
+        credential:
+          description: The encoded string representation of the credential.
+          examples:
+            - LUpixVCWJk0eOt4CXQe1NXK....WZwmhmn9OQp6YxX0a2L
+          type: string
+        format:
+          description: Format of the credential.
+          enum:
+            - dc+sd-jwt
+            - jwt_vc_json
+          type: string
+        id:
+          description: A unique identifier of the credential.
+          examples:
+            - urn:uuid:df9a133c-0fca-4db1-8892-2f881aa44109
+          type: string
+      type: object
+    CredentialOffer:
+      properties:
+        credential:
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            type:
+              type: string
+          type: object
+        id:
+          type: string
+        issuer:
+          type: string
+        recipient:
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+          type: object
+        status:
+          type: string
+      type: object
+    CredentialOfferRequest:
+      properties:
+        claims:
+          description: 'claims to be included in the issued verifiable credential'
+          properties: {}
+          type: object
+        credential_configuration_ids:
+          items:
+            type: string
+          type: array
+        grants:
+          properties:
+            authorization_code:
+              properties:
+                issuer_state:
+                  type: string
+              type: object
+            urn:ietf:params:oauth:grant-type:pre-authorized_code:
+              properties:
+                pre-authorized_code:
+                  type: string
+                user_pin_required:
+                  type: boolean
+              type: object
+          type: object
+      type: object
+    CredentialOfferResponse:
+      properties:
+        pinLength:
+          examples:
+            - 4
+          type: number
+        uri:
+          type: string
+        userPin:
+          type: string
+        userPinRequired:
+          type: boolean
+      type: object
+    CredentialRequest:
+      properties:
+        credential_configuration_id:
+          type: string
+          examples:
+            - verifiable_credential_sd_jwt
+        proofs:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProofOfPossession'
+      type: object
+      required:
+        - credential_configuration_id
+    CredentialResponse:
+      properties:
+        credentials:
+          type: array
+          items:
+            type: object
+            properties:
+              credential:
+                examples:
+                  - ejy0...
+                description: a compact JWT for `jwt_vc_json` and `dc+sd-jwt` credentials. for `mso_mdoc` this value will be a base64url encoded representation of the cbor binary.
+                type: string
+      type: object
+    CredentialConfigurationClaims:
+      type: array
+      items:
+        type: object
+        properties:
+          path:
+            type: array
+            items:
+              oneOf:
+                - type: string
+                - type: number
+                - nullable: true
+          mandatory:
+            type: boolean
+          display:
+            type: array
+            items:
+              type: object
+              properties:
+                name:
+                  type: string
+                locale:
+                  type: string
+        required:
+          - path
+    DisplayName:
+      properties:
+        name:
+          type: string
+        locale:
+          type: string
+      type: object
+    Error:
+      type: object
+      required:
+        - error
+        - error_description
+      properties:
+        error:
+          type: string
+          description: A machine-readable error code.
+          examples:
+            - invalid_request
+        error_description:
+          type: string
+          description: A human-readable description of the error providing additional information about the error.
+          examples:
+            - 'invalid pre-authorized_code'
+        error_uri:
+          type: string
+          format: uri
+          description: A URI identifying a human-readable web page with information about the error.
+          examples:
+            - https://example.com/errors/error_name
+    InvalidRequestError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [invalid_request]
+              examples:
+                - invalid_request
+            error_description:
+              type: string
+              description: |
+                The request is missing a required parameter, includes an unsupported parameter value (other than grant type), repeats a parameter, includes multiple credentials, utilizes more than one mechanism for authenticating the client, or is otherwise malformed.
+    InvalidGrantError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [invalid_grant]
+              examples:
+                - invalid_grant
+            error_description:
+              type: string
+              description: |
+                The provided authorization grant (e.g., authorization code, resource owner credentials) or refresh token is invalid, expired, revoked, does not match the redirection URI used in the authorization request, or was issued to another client.
+              examples:
+                - invalid pre-authorized_code
+    InvalidClientError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [invalid_client]
+              examples:
+                - invalid_client
+            error_description:
+              type: string
+              description: |
+                Client authentication failed (e.g., unknown client, no client authentication included, or unsupported authentication method).
+              examples:
+                - Token verification failed. Invalid client_id = '___'
+    UnauthorizedClientError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [unauthorized_client]
+              examples:
+                - unauthorized_client
+            error_description:
+              type: string
+              description: |
+                The authenticated client is not authorized to use this authorization grant type.
+              examples:
+                - Grant type 'client_credentials ' not allowed for the client.
+    UnsupportedGrantTypeError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [unsupported_grant_type]
+              examples:
+                - unsupported_grant_type
+            error_description:
+              type: string
+              description: |
+                The authorization grant type is not supported by the authorization server.
+              examples:
+                - unsupported grant_type requested
+    InvalidScopeError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [invalid_scope]
+              examples:
+                - invalid_scope
+            error_description:
+              type: string
+              description: |
+                The requested scope is invalid, unknown, malformed, or exceeds the scope granted by the resource owner.
+              examples:
+                - requested scope is not allowed
+    InvalidCredentialRequestError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [invalid_credential_request]
+              examples:
+                - invalid_credential_request
+            error_description:
+              type: string
+              description: |
+                The Credential Request is missing a required parameter, includes an unsupported parameter or parameter value, repeats the same parameter, or is otherwise malformed.
+              examples:
+                - ''
+    UnsupportedCredentialTypeError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [unsupported_credential_type]
+              examples:
+                - unsupported_credential_type
+            error_description:
+              type: string
+              description: |
+                Requested Credential type is not supported
+              examples:
+                - ''
+    UnsupportedCredentialFormatError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [unsupported_credential_format]
+              examples:
+                - unsupported_credential_format
+            error_description:
+              type: string
+              description: |
+                Requested Credential format is not supported.
+              examples:
+                - Requested Credential format 'mso_mdoc' is not supported
+    InvalidProofError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [invalid_proof]
+              examples:
+                - invalid_proof
+            error_description:
+              type: string
+              description: |
+                The proof in the Credential Request is invalid. The proof field is not present or the provided key proof is invalid or not bound to a nonce provided by the Credential Issuer.
+              examples:
+                - ''
+    InvalidEncryptionParametersError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [invalid_encryption_parameters]
+              examples:
+                - invalid_encryption_parameters
+            error_description:
+              type: string
+              description: |
+                This error occurs when the encryption parameters in the Credential Request are either invalid or missing. In the latter case, it indicates that the Credential Issuer requires the Credential Response to be sent encrypted, but the Credential Request does not contain the necessary encryption parameters.
+              examples:
+                - ''
+    AuthorizationPendingError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [authorization_pending]
+              examples:
+                - authorization_pending
+            error_description:
+              type: string
+              description: |
+                This error code is used if the Authorization Server is waiting for an End-User interaction or a downstream process to complete. The Wallet SHOULD repeat the access token request to the token endpoint (a process known as polling). Before each new request, the Wallet MUST wait at least the number of seconds specified by the interval claim of the Credential Offer (see Section 4.1.1) or the authorization response (see Section 5.2), or 5 seconds if none was provided, and respect any increase in the polling interval required by the "slow_down" error.
+              examples:
+                - ''
+    SlowDownError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [slow_down]
+              examples:
+                - slow_down
+            error_description:
+              type: string
+              description: |
+                A variant of authorization_pending error code, the authorization request is still pending and polling should continue, but the interval MUST be increased by 5 seconds for this and all subsequent requests.
+              examples:
+                - ''
+    AccessDeniedError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [access_denied]
+              examples:
+                - access_denied
+            error_description:
+              type: string
+              description: |
+                The user or authorization server denied the request.
+              examples:
+                - ''
+    ServerErrorError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [server_error]
+              examples:
+                - server_error
+            error_description:
+              type: string
+              description: |
+                Server error.
+              examples:
+                - Something went wrong...
+    NotFoundError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [not_found]
+              examples:
+                - not_found
+            error_description:
+              type: string
+              description: |
+                Object not found
+              examples:
+                - Request Item with itemId is not found
+    TemporarilyUnavailableError:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            error:
+              type: string
+              enum: [temporarily_unavailable]
+              examples:
+                - temporarily_unavailable
+            error_description:
+              type: string
+              description: |
+                The server is undergoing maintenance, or is otherwise unavailable.
+              examples:
+                - ''
+    JwtVcJsonCredentialDefinition:
+      properties:
+        credentialSubject:
+          properties: {}
+          type: object
+        types:
+          items:
+            type: string
+          type: array
+      type: object
+    ListCredentialsResponse:
+      properties:
+        credentials:
+          items:
+            properties:
+              created_at:
+                type: string
+              credential_id:
+                type: string
+              credential_type_id:
+                type: string
+              credential_type_name:
+                type: string
+              expires_at:
+                type: string
+              format:
+                type: string
+              id:
+                type: string
+              issued_at:
+                type: string
+              issuer:
+                type: string
+              organization_id:
+                type: string
+              revocable:
+                type: boolean
+              status:
+                type: string
+              subject:
+                type: string
+              updated_at:
+                type: string
+            type: object
+          type: array
+        meta:
+          $ref: '#/components/schemas/VCMeta'
+      type: object
+    OpenidConfigResponse:
+      properties:
+        authorization_endpoint:
+          type: string
+        authorization_response_iss_parameter_supported:
+          type: boolean
+        authorization_signing_alg_values_supported:
+          items:
+            type: string
+          type: array
+        claim_types_supported:
+          items:
+            type: string
+          type: array
+        claims_supported:
+          items:
+            type: string
+          type: array
+        code_challenge_methods_supported:
+          items:
+            type: string
+          type: array
+        grant_types_supported:
+          items:
+            type: string
+          type: array
+        id_token_signing_alg_values_supported:
+          items:
+            type: string
+          type: array
+        issuer:
+          type: string
+        jwks_uri:
+          type: string
+        pushed_authorization_request_endpoint:
+          type: string
+        request_object_signing_alg_values_supported:
+          items:
+            type: string
+          type: array
+        request_parameter_supported:
+          type: boolean
+        request_uri_parameter_supported:
+          type: boolean
+        response_modes_supported:
+          items:
+            type: string
+          type: array
+        response_types_supported:
+          items:
+            type: string
+          type: array
+        scopes_supported:
+          items:
+            type: string
+          type: array
+        subject_types_supported:
+          items:
+            type: string
+          type: array
+        token_endpoint:
+          type: string
+        token_endpoint_auth_methods_supported:
+          items:
+            type: string
+          type: array
+      type: object
+    ProofOfPossession:
+      properties:
+        jwt:
+          type: array
+          items:
+            type: string
+        proof_type:
+          enum:
+            - jwt
+          type: string
+      type: object
+    TokenRequestModelDto:
+      properties:
+        client_id:
+          description: The client identifier as registered in the authorization server.
+          type: string
+        code:
+          description: The authorization code received from the authorization server.
+          type: string
+        code_verifier:
+          description: The code verifier for the PKCE request, to mitigate authorization code interception attacks.
+          type: string
+        grant_type:
+          description: Specifies the type of grant being requested by the client.
+          enum:
+            - authorization_code
+            - urn:ietf:params:oauth:grant-type:pre-authorized_code
+            - password
+          type: string
+        pre-authorized_code:
+          description: A pre-authorized code that can be exchanged for an access token.
+          type: string
+        redirect_uri:
+          description: The URI to redirect the client to after authorization.
+          type: string
+        scope:
+          description: The scope of the access request, which might determine the level of access granted by the access token.
+          type: string
+        user_pin:
+          description: An optional user PIN for additional security, used in certain grant types like `password`.
+          type: string
+      type: object
+    TokenResponseModelDto:
+      properties:
+        access_token:
+          description: The access token issued by the authorization server.
+          type: string
+        authorization_pending:
+          description: Indicates whether the authorization request is still pending and not yet finalized.
+          type: boolean
+        expires_in:
+          description: The lifetime in seconds of the access token.
+          type: integer
+        interval:
+          description: The interval in seconds that the client should wait between polling requests to the token endpoint.
+          type: integer
+        token_type:
+          description: The type of the token issued, typically `Bearer`.
+          type: string
+      type: object
+    VCCredentialVerificationResultResponseDto:
+      properties:
+        checks:
+          items:
+            enum:
+              - format
+              - signature
+              - expiration
+              - nonce
+              - schema
+              - revocation_status
+            type: string
+          type: array
+        errors:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+        id:
+          examples:
+            - urn:uuid:23b841f2-a3dc-477f-a9e1-5024d1dcc02b
+          type: string
+        warnings:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+      required:
+        - id
+        - checks
+        - warnings
+        - errors
+      type: object
+    VCErrorResponseDto:
+      properties:
+        error:
+          type: string
+          examples:
+            - error_type
+        extra_info:
+          type: object
+        http_code:
+          type: number
+          examples:
+            - 500
+        message:
+          type: object
+          examples:
+            - Error message
+        message_in_requested_language:
+          default: true
+          type: boolean
+        requested_language:
+          default: en
+          examples:
+            - en
+          type: string
+      required:
+        - error
+        - message
+        - http_code
+        - extra_info
+        - requested_language
+        - message_in_requested_language
+      type: object
+    VCErrorsResponseDto:
+      properties:
+        errors:
+          items:
+            $ref: '#/components/schemas/VCErrorResponseDto'
+          type: array
+      required:
+        - errors
+      type: object
+    VCIdTokenVerificationOptionsDto:
+      properties:
+        checks:
+          examples:
+            - format
+            - signature
+            - expiration
+            - nonce
+          items:
+            enum:
+              - format
+              - signature
+              - expiration
+              - nonce
+            type: string
+          type: array
+      type: object
+    VCIdTokenVerificationResultResponseDto:
+      properties:
+        checks:
+          items:
+            enum:
+              - format
+              - signature
+              - expiration
+              - nonce
+              - schema
+              - revocation_status
+            type: string
+          type: array
+        errors:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+        warnings:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+      required:
+        - checks
+        - warnings
+        - errors
+      type: object
+    VCMeta:
+      properties:
+        order:
+          enum:
+            - ASC
+            - DESC
+          type: string
+          examples:
+            - ASC
+        order_by:
+          type: string
+          examples:
+            - name
+        order_from_params:
+          type: boolean
+          examples:
+            - true
+        page:
+          examples:
+            - 1
+          type: number
+        page_count:
+          examples:
+            - 10
+          type: number
+        per_page:
+          examples:
+            - 10
+          type: number
+        per_page_from_params:
+          examples:
+            - true
+          type: boolean
+        records_count:
+          examples:
+            - 100
+          type: number
+      required:
+        - order_by
+        - order
+        - order_from_params
+        - per_page
+        - per_page_from_params
+        - records_count
+        - page
+        - page_count
+      type: object
+    VCOldPresentationRequestResponseVerificationResultResponseDto:
+      properties:
+        checks:
+          items:
+            enum:
+              - format
+              - signature
+              - expiration
+              - nonce
+              - schema
+              - revocation_status
+            type: string
+          type: array
+        errors:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+        warnings:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+      required:
+        - checks
+        - warnings
+        - errors
+      type: object
+    VCPaginatedPresentationDefinitionsResponseDto:
+      properties:
+        meta:
+          $ref: '#/components/schemas/VCMeta'
+        presentation_definitions:
+          items:
+            $ref: '#/components/schemas/VCPresentationDefinitionModelDto'
+          type: array
+      required:
+        - presentation_definitions
+        - meta
+      type: object
+    VCPaginatedPresentationRequestResponseDto:
+      properties:
+        meta:
+          $ref: '#/components/schemas/VCMeta'
+        presentation_requests:
+          items:
+            $ref: '#/components/schemas/VCPresentationRequestModelDto'
+          type: array
+      required:
+        - presentation_requests
+        - meta
+      type: object
+    VCPresentationDefinitionModelDto:
+      properties:
+        archived:
+          type: boolean
+        archived_at:
+          default: null
+          format: date-time
+          type: string
+        created_at:
+          default: null
+          format: date-time
+          type: string
+        id:
+          default: null
+          examples:
+            - 9322c384-fd8e-4a13-80cd-1cbd1ef95ba8
+          type: string
+        name:
+          default: null
+          examples:
+            - Presentation definition name
+          type: string
+        organization_id:
+          default: null
+          examples:
+            - 9a1c543d-6cbb-48a9-99df-ebbbc94747a4
+          type: string
+        purpose:
+          default: null
+          examples:
+            - Presentation definition purpose
+          type: string
+        updated_at:
+          default: null
+          format: date-time
+          type: string
+        input_descriptors:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresentationDefinitionInputDescriptorDto'
+        dcql_query:
+          type: object
+          properties:
+            credentials:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  format:
+                    type: string
+                  claims:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      values:
+                        type: array
+                        items:
+                          anyOf:
+                            - type: string
+                            - type: number
+                            - type: boolean
+                      path:
+                        type: array
+                        items:
+                          anyOf:
+                            - type: string
+                            - type: number
+                            - type: 'null'
+                  claim_sets:
+                    type: array
+                    items:
+                      type: array
+                      items:
+                        type: string
+            credential_sets:
+              type: array
+              items:
+                type: object
+                properties:
+                  options:
+                    type: array
+                    items:
+                      type: array
+                      items:
+                        type: string
+                  required:
+                    type: boolean
+      required:
+        - id
+        - name
+        - purpose
+        - organization_id
+        - is_archived
+        - created_at
+        - updated_at
+        - archived
+        - archived_at
+      type: object
+    VCPresentationRequestModelDto:
+      properties:
+        archived:
+          type: boolean
+        archived_at:
+          default: null
+          format: date-time
+          type: string
+        created_at:
+          default: null
+          format: date-time
+          type: string
+        description:
+          default: null
+          type: string
+          examples:
+            - Request description...
+        id:
+          default: null
+          type: string
+          examples:
+            - bbcb29a4-b3dd-4466-a84d-376d29686afa
+        name:
+          default: null
+          type: string
+          examples:
+            - Request name
+        organization_id:
+          default: null
+          type: string
+          examples:
+            - 106867bc-a9a4-4c14-922e-375d9db69db0
+        updated_at:
+          default: null
+          format: date-time
+          type: string
+        parameters:
+          $ref: '#/components/schemas/VCPresentationRequestParametersDto'
+      required:
+        - id
+        - organization_id
+        - created_at
+        - updated_at
+        - name
+        - description
+        - redirect_base_uri
+        - method
+        - status
+        - token_properties
+        - tokens
+        - archived
+        - archived_at
+        - parameters
+      type: object
+    VCPresentationRequestResponseDto:
+      properties:
+        presentation_request:
+          $ref: '#/components/schemas/VCPresentationRequestModelDto'
+      required:
+        - presentation_request
+      type: object
+    VCPresentationRequestResponseVerificationOptionsDto:
+      properties:
+        checks:
+          examples:
+            - format
+          items:
+            enum:
+              - format
+            type: string
+          type: array
+        id_token:
+          $ref: '#/components/schemas/VCIdTokenVerificationOptionsDto'
+        request:
+          $ref: '#/components/schemas/VCRequestVerificationOptionsDto'
+        vp_token:
+          $ref: '#/components/schemas/VCPresentationVerificationOptionsDto'
+      type: object
+    VCPresentationRequestResponseVerificationResultResponseDto:
+      properties:
+        checks:
+          items:
+            enum:
+              - format
+              - signature
+              - expiration
+              - nonce
+              - schema
+              - revocation_status
+            type: string
+          type: array
+        errors:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+        id_token:
+          $ref: '#/components/schemas/VCIdTokenVerificationResultResponseDto'
+        request:
+          $ref: '#/components/schemas/VCPresentationRequestVerificationResultResponseDto'
+        vp_token:
+          items:
+            $ref: '#/components/schemas/VCPresentationVerificationResultResponseDto'
+          type: array
+        warnings:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+      required:
+        - checks
+        - warnings
+        - errors
+        - request
+        - id_token
+        - vp_token
+      type: object
+    VCPresentationRequestSubmissionModelDto:
+      properties:
+        created_at:
+          format: date-time
+          type: string
+        id:
+          type: string
+          examples:
+            - 7dcfa413-bff0-4f62-a51a-ab9959623332
+        id_token:
+          type: string
+          examples:
+            - eyJraWQiOiJkaWQ6aW9uOkVpQTZkWlV...
+        last_verified_at:
+          format: date-time
+          type: string
+        presentation_request_id:
+          examples:
+            - 5035180b-1528-4ddf-95f2-f01b4d04cd22
+          type: string
+        state:
+          examples:
+            - state-value
+          type: string
+        status:
+          enum:
+            - pending
+            - verified
+            - verification_failed
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+        verification_result:
+          oneOf:
+            - $ref: '#/components/schemas/VCPresentationRequestResponseVerificationResultResponseDto'
+            - $ref: '#/components/schemas/VCOldPresentationRequestResponseVerificationResultResponseDto'
+        vp_token:
+          examples:
+            - eyJraWQiOiJkaWQ6aW9uOkVpQTZkWlV...
+          type: string
+      required:
+        - id
+        - presentation_request_id
+        - vp_token
+        - id_token
+        - state
+        - verification_result
+        - last_verified_at
+        - presentation_submission
+      type: object
+    VCPresentationRequestVerificationResultResponseDto:
+      properties:
+        checks:
+          items:
+            enum:
+              - format
+              - signature
+              - expiration
+              - nonce
+              - schema
+              - revocation_status
+            type: string
+          type: array
+        errors:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+        id:
+          examples:
+            - 038102ed-d224-4656-ae8d-10aeab5686aa
+          type: string
+        warnings:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+      required:
+        - id
+        - checks
+        - warnings
+        - errors
+      type: object
+    VCPresentationVerificationOptionsDto:
+      properties:
+        checks:
+          examples:
+            - format
+            - signature
+            - expiration
+            - nonce
+          items:
+            enum:
+              - format
+              - signature
+              - expiration
+              - nonce
+            type: string
+          type: array
+      type: object
+    VCPresentationVerificationResultResponseDto:
+      properties:
+        checks:
+          items:
+            enum:
+              - format
+              - signature
+              - expiration
+              - nonce
+              - schema
+              - revocation_status
+            type: string
+          type: array
+        credentials:
+          items:
+            $ref: '#/components/schemas/VCCredentialVerificationResultResponseDto'
+          type: array
+        errors:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+        warnings:
+          items:
+            $ref: '#/components/schemas/VCVerificationCheckResponseDto'
+          type: array
+      required:
+        - checks
+        - warnings
+        - errors
+        - credentials
+      type: object
+    VCRequestVerificationOptionsDto:
+      properties:
+        checks:
+          examples:
+            - format
+            - signature
+            - expiration
+          items:
+            enum:
+              - format
+              - signature
+              - expiration
+            type: string
+          type: array
+      type: object
+    VCVerificationCheckResponseDto:
+      properties:
+        error:
+          examples:
+            - error_or_warning_type
+          type: string
+        extra_info:
+          examples:
+            - "reason: 'invalid_signature: Signature invalid for JWT'"
+          type: object
+        message:
+          examples:
+            - Error or warning message
+          type: object
+      required:
+        - error
+        - message
+        - extra_info
+      type: object
+    VCVerifyPresentationRequestResponseDto:
+      type: object
+      properties:
+        presentation_definition:
+          $ref: '#/components/schemas/PresentationDefinitionDto'
+        id_token:
+          examples:
+            - eyJraWQiOiJkaWQ6aW9uOkVpQTZkWlV...
+          type: string
+        state:
+          description: Not used anywhere at the moment
+          examples:
+            - state-value
+          type: string
+        vp_token:
+          $ref: '#/components/schemas/VpTokenParameter'
+        presentation_submission:
+          type: object
+        nonce:
+          type: string
+        audience:
+          type: string
+      required:
+        - presentation_definition
+    VCVerifyPresentationRequestResponsePayloadDto:
+      properties:
+        options:
+          $ref: '#/components/schemas/VCPresentationRequestResponseVerificationOptionsDto'
+        presentation_request_response:
+          $ref: '#/components/schemas/VCVerifyPresentationRequestResponseDto'
+      required:
+        - presentation_request_response
+      type: object
+    VCPresentationDefinitionResponseDto:
+      type: object
+      properties:
+        presentation_definition:
+          $ref: '#/components/schemas/VCPresentationDefinitionModelDto'
+      required:
+        - presentation_definition
+    WellKnownJwtIssuerResponse:
+      properties:
+        issuer:
+          type: string
+        jwks:
+          properties:
+            keys:
+              items:
+                type: object
+              type: array
+          type: object
+      type: object
+    WellKnownResponse:
+      properties:
+        authorization_servers:
+          items:
+            description: identifier of the OAuth 2.0 Authorization Server (as defined in [RFC8414]) the Credential Issuer relies on for authorization
+            type: string
+          type: array
+        credential_configurations_supported:
+          items:
+            $ref: '#/components/schemas/CredentialConfigurationsProperty'
+          type: array
+        credential_endpoint:
+          type: string
+        credential_issuer:
+          type: string
+        display:
+          items:
+            $ref: '#/components/schemas/DisplayName'
+          type: array
+        nonce_endpoint:
+          type: string
+      type: object
+    SelectIDRPConfigResponse:
+      properties:
+        issuer:
+          type: string
+        redirect_uris:
+          type: array
+          items:
+            type: string
+        client_name:
+          type: string
+        client_uri:
+          type: string
+        logo_uri:
+          type: string
+        jwks_uri:
+          type: string
+        resume_uri:
+          type: string
+    VpTokenParameter:
+      # vp_token should be string or an array of string
+      # openapi-generator (7.3.0) still does fully support oneOf
+      # currently it is not possible to define it as oneOf string or array of string
+      type: string
+      description: JSON String of a Verifiable Presentation or an array of JSON Strings each of them containing a Verifiable Presentations
+      examples:
+        - aWQiOiJkaWQ6aW9uOkVpQTZkWlV...
+        - [aWQiOiJkaWQ6aW9uOkVpQTZkWlV..., aWQiOiJkaWQ6aW9uOkVpQTZkWlV...]
+    PresentationDefinitionDto:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        purpose:
+          type: string
+        input_descriptors:
+          type: array
+          items:
+            $ref: '#/components/schemas/PresentationDefinitionInputDescriptorDto'
+      required:
+        - id
+        - input_descriptors
+    PresentationDefinitionInputDescriptorDto:
+      type: object
+      properties:
+        id:
+          type: string
+        format:
+          type: object
+        name:
+          type: string
+        purpose:
+          type: string
+        constraints:
+          $ref: '#/components/schemas/PresentationDefinitionInputDescriptorConstraintsDto'
+        group:
+          type: array
+          items:
+            type: string
+      required:
+        - id
+        - constraints
+    PresentationDefinitionInputDescriptorConstraintsDto:
+      type: object
+      properties:
+        limit_disclosure:
+          type: string
+          enum:
+            - required
+            - preferred
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConstraintsFieldDto'
+    ConstraintsFieldDto:
+      type: object
+      required:
+        - path
+      properties:
+        path:
+          type: array
+          items:
+            type: string
+        name:
+          type: string
+        purpose:
+          type: string
+        filter:
+          $ref: '#/components/schemas/FieldFilterDto'
+        optional:
+          type: boolean
+        intent_to_retain:
+          type: boolean
+    FieldFilterDto:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+        const:
+          description: |
+            const can be a number | string | boolean | object
+            openapi-generator cannot handle multiple types so it is only listed as string here
+          type: string
+        pattern:
+          type: string
+        format:
+          type: string
+        exclusiveMinimum:
+          type: number
+        exclusiveMaximum:
+          type: number
+        minimum:
+          type: number
+        maximum:
+          type: number
+        enum:
+          type: array
+          items:
+            type: string
+        not:
+          $ref: '#/components/schemas/FieldFilterNotPredicateDto'
+    FieldFilterNotPredicateDto:
+      type: object
+      properties:
+        enum:
+          type: array
+          items:
+            type: string
+        const:
+          description: |
+            const can be a number | string | boolean | object
+            openapi-generator cannot handle multiple types so it is only listed as string here
+          type: string
+    VCPresentationRequestParametersDto:
+      type: object
+      properties:
+        client_id:
+          type: string
+        client_id_scheme:
+          type: string
+        client_name:
+          type: string
+        client_purpose:
+          type: string
+        state:
+          type: string
+        expires_at:
+          default: null
+          format: date-time
+          type: string
+        presentation_definition_id:
+          type: string
+        presentation_definition:
+          $ref: '#/components/schemas/PresentationDefinitionDto'
+        nonce:
+          type: string
+        scope:
+          type: string
+        redirect_uri:
+          type: string
+        response_mode:
+          type: string
+          examples:
+            - direct_post
+        response_uri:
+          type: string
+        response_type:
+          type: string
+          examples:
+            - vp_token
+        request_uri_method:
+          type: string
+        protocol_version:
+          type: string
+          enum:
+            - openid4vp-draft18
+            - openid4vp-draft28
+          examples:
+            - openid4vp-draft18
+      required:
+        - client_id
+        - client_id_scheme
+        - client_name
+        - client_purpose
+        - state
+        - expires_at
+        - presentation_definition_id
+        - presentation_definition
+        - nonce
+        - scope
+        - redirect_uri
+        - response_mode
+        - response_uri
+        - response_type
+        - request_uri_method
+        - protocol_version
+  securitySchemes:
+    bearerAuth:
+      bearerFormat: JWT
+      scheme: bearer
+      type: http
+    mutualTLS:
+      type: mutualTLS
+x-tagGroups:
+  - name: Credentials
+    tags:
+      - Credentials
+      - Presentation Definitions
+  - name: OpenID Credential Issuance
+    tags:
+      - Authorization Server
+      - Credential Offers
+      - Verifiable Credential Issuance
+      - Well-Known URIs
+  - name: OpenID Credential Presentation
+    tags:
+      - Verifiable Presentation Request
+      - Verifiable Presentation Response
+      - Verifiable Presentations
+      - Presentation Definitions
+  - name: Identity Verification
+    tags:
+      - Identity Verification
+  - name: Service
+    tags:
+      - System
